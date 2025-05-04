@@ -11,6 +11,9 @@ importers:
       '@vercel/analytics':
         specifier: ^1.5.0
         version: 1.5.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)
+      '@vercel/functions':
+        specifier: ^2.0.1
+        version: 2.0.1
       '@vercel/speed-insights':
         specifier: ^1.2.0
         version: 1.2.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)
@@ -342,6 +345,15 @@ packages:
       vue:
         optional: true
       vue-router:
+        optional: true
+
+  '@vercel/functions@2.0.1':
+    resolution: {integrity: sha512-WmGX0+wAPn0AEYN5GZjrlrGE6Vr/pkkmbfHoZjoAmJn+Vybi8/jM0gil4M3D8hRYq3k1uDKuNzrHnToXc+s8Ag==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-web-identity': '*'
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-web-identity':
         optional: true
 
   '@vercel/speed-insights@1.2.0':
@@ -777,6 +789,8 @@ snapshots:
     optionalDependencies:
       next: 15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       react: 19.1.0
+
+  '@vercel/functions@2.0.1': {}
 
   '@vercel/speed-insights@1.2.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)':
     optionalDependencies:
