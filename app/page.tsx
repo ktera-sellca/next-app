@@ -1,5 +1,10 @@
 import { TableSample } from "~/components/Table";
 
 export default function Home() {
-  return <TableSample />;
+  return (
+    <>
+      <h1>Hello World</h1>
+      <TableSample />
+    </>
+  );
 }
