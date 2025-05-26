@@ -1,0 +1,62 @@
+name: Visual Regression Testing (Simple)
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: write
+
+jobs:
+  vrt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Storybook
+        run: pnpm build-storybook
+
+      - name: Generate screenshots with Python server
+        run: |
+          cd storybook-static
+          python3 -m http.server 6006 &
+          SERVER_PID=$!
+          cd ..
+          
+          sleep 5
+          curl -f http://localhost:6006 || (echo "Server not ready, waiting more..." && sleep 10)
+          
+          npx storycap http://localhost:6006 --outDir __screenshots__ --serverTimeout 60000 --delay 1500
+          
+          kill $SERVER_PID
+
+      - name: Run VRT
+        uses: reg-viz/reg-actions@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          image-directory-path: "__screenshots__"
+          artifact-name: "vrt-report"
+          comment-report-format: "summarized"
+          matching-threshold: 0.1
+          threshold-rate: 0.05
