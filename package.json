@@ -11,9 +11,14 @@
     "storybook": "storybook dev -p 6007",
     "build-storybook": "storybook build",
     "storycap": "storycap --serverCmd \"pnpm dlx http-server storybook-static -p 6006\" http://localhost:6006",
-    "storybook:screenshot": "storycap --serverCmd \"pnpm dlx http-server storybook-static -p 6006\" http://localhost:6006",
-    "ci:screenshot": "pnpm build-storybook && pnpm storycap",
-    "test:vrt": "reg-suit run"
+    "storycap:ci": "storycap http://localhost:6006 --outDir __screenshots__ --serverTimeout 60000 --delay 1000",
+    "ci:screenshot": "pnpm build-storybook && pnpm storycap:ci",
+    "test:vrt": "reg-suit run",
+    "vrt:local": "pnpm ci:screenshot && reg-cli __screenshots__ __screenshots__/expected __screenshots__/diff -R ./vrt-report.html",
+    "vrt:update-baseline": "pnpm ci:screenshot && cp -r __screenshots__ __screenshots__/expected",
+    "vrt:clean": "rm -rf __screenshots__/diff __screenshots__/actual .vrt-reports .vrt-artifacts",
+    "vrt:serve-report": "pnpm dlx http-server .vrt-reports -p 8080 -o",
+    "vrt:debug": "DEBUG=storycap* pnpm ci:screenshot"
   },
   "dependencies": {
     "@next/bundle-analyzer": "^15.3.1",
@@ -23,7 +28,8 @@
     "next": "15.3.1",
     "puppeteer": "^24.9.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "reg-publish-filesystem-plugin": "^0.2.0"
   },
   "devDependencies": {
     "@storybook/addon-essentials": "^8.6.14",
