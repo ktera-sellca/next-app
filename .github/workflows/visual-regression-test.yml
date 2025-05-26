@@ -1,11 +1,12 @@
-name: Visual Regression Test
+name: visual-regression-test
 on:
-  push:
+  pull_request:
     branches:
       - main
-  pull_request:
-    branches-ignore:
-      - ci/**
+
+defaults:
+  run:
+    shell: bash
 
 permissions:
   contents: read
@@ -13,9 +14,10 @@ permissions:
   pull-requests: write
 
 jobs:
-  prepare:
-    name: Prepare main branch screenshots
+  check_expected_screenshots:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -27,85 +29,39 @@ jobs:
         with:
           version: 10.8.0
 
-      - name: Checkout main branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Check commit hash
-        id: commithash
-        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Restore pnpm cache
-        uses: actions/cache@v4
+      - name: restore cached expected screenshots
+        id: screenshots_cache
+        uses: ./.github/actions/cache-screenshots
         with:
-          path: ~/.pnpm-store
-          key: pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-v1
+          lookup-only: 'true'
 
-      - name: Restore reg-suit screenshots
-        uses: actions/cache@v4
-        with:
-          path: .reg/
-          key: reg-expected-${{ steps.commithash.outputs.hash }}-v8
-          restore-keys: |
-            reg-expected-${{ steps.commithash.outputs.hash }}-
-            reg-expected-
+      - name: restore cached node_modules
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/cache-node-modules
 
-      - name: Check file existence
-        id: check_files
-        uses: andstor/file-existence-action@v2
-        with:
-          files: ".reg/"
+      - name: cache storybook build result
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        id: storybook_result_cache
+        uses: ./.github/actions/cache-storybook-build-result
 
-      - name: Install dependencies (main branch)
-        if: steps.check_files.outputs.files_exists == 'false'
-        run: pnpm install --frozen-lockfile
+      - name: storybook build
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' && steps.storybook_result_cache.outputs.cache-hit != 'true' }}
+        run: pnpm build-storybook
 
-      - name: Install Puppeteer Chrome
-        if: steps.check_files.outputs.files_exists == 'false'
-        run: npx puppeteer browsers install chrome
-
-      - name: Screenshots main branch
-        if: steps.check_files.outputs.files_exists == 'false'
-        run: pnpm ci:screenshot
-
-      - name: Run reg-suit main branch
-        if: steps.check_files.outputs.files_exists == 'false'
-        run: pnpm ci:reg-suit
-
-      - name: Set reg-suit expected
-        if: steps.check_files.outputs.files_exists == 'false'
-        run: |
-          rm -rf .reg/expected/
-          mv -f .reg/actual/ .reg/expected/
-          mkdir .reg/actual/
-          ls -l .reg/
-
-      - name: Save expected images to cache
-        if: steps.check_files.outputs.files_exists == 'false'
-        uses: actions/cache/save@v4
-        with:
-          path: .reg/expected
-          key: reg-expected-${{ steps.commithash.outputs.hash }}-v8
-
-      - name: Upload expected images artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: reg-expected
-          path: .reg/expected
-        if: always()
-
-  run:
-    name: Run reg-suit
-    needs: prepare
+  take_expected_screenshots:
+    needs: check_expected_screenshots
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        shard: [1/4, 2/4, 3/4, 4/4]
 
+    steps:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -116,160 +72,236 @@ jobs:
         with:
           version: 10.8.0
 
-      - name: Workaround for detached HEAD
-        if: ${{ github.event_name == 'pull_request' }}
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: restore cached expected screenshots
+        id: screenshots_cache
+        uses: ./.github/actions/cache-screenshots
+        with:
+          lookup-only: 'false'
+
+      - name: restore cached node_modules
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/cache-node-modules
+
+      - name: cache storybook build result
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        id: storybook_result_cache
+        uses: ./.github/actions/cache-storybook-build-result
+
+      - name: prepare for screenshots
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/prepare-screenshots
+
+      - name: take screenshots
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard=${{ matrix.shard }}
+
+      - name: upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: expected-screenshots-${{ matrix.shard }}
+          path: __screenshots__
+          retention-days: 1
+
+  check_actual_screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: workaround for detached HEAD
         run: |
           git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
 
-      - name: Restore pnpm cache
-        uses: actions/cache@v4
+      - name: restore cached actual screenshots
+        id: screenshots_cache
+        uses: ./.github/actions/cache-screenshots
         with:
-          path: ~/.pnpm-store
-          key: pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-v1
+          lookup-only: 'true'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: restore cached node_modules
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/cache-node-modules
 
-      - name: Install Puppeteer Chrome
-        run: npx puppeteer browsers install chrome
+      - name: cache storybook build result
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        id: storybook_result_cache
+        uses: ./.github/actions/cache-storybook-build-result
 
-      - name: Get main branch commit hash
-        id: main_commithash
-        run: echo "hash=$(git rev-parse origin/main)" >> $GITHUB_OUTPUT
+      - name: storybook build
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' && steps.storybook_result_cache.outputs.cache-hit != 'true' }}
+        run: pnpm build-storybook
 
-      - name: Try to restore cached expected images
-        id: cache_restore
-        uses: actions/cache/restore@v4
+  take_actual_screenshots:
+    needs: check_actual_screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        shard: [1/4, 2/4, 3/4, 4/4]
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          path: .reg/expected
-          key: reg-expected-${{ steps.main_commithash.outputs.hash }}-v8
-          restore-keys: |
-            reg-expected-${{ steps.main_commithash.outputs.hash }}-
-            reg-expected-
+          node-version: 20
 
-      - name: Load reg-suit expecteds from artifact
-        if: steps.cache_restore.outputs.cache-hit != 'true'
-        id: download_expected
-        uses: actions/download-artifact@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
         with:
-          name: reg-expected
-          path: .reg/expected
-        continue-on-error: true
+          version: 10.8.0
 
-      - name: Check artifact download result
-        if: steps.cache_restore.outputs.cache-hit != 'true'
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: workaround for detached HEAD
         run: |
-          if [ "${{ steps.download_expected.outcome }}" = "success" ]; then
-            echo "Expected images downloaded from artifact successfully"
-          else
-            echo "Failed to download expected images from artifact, this might be the first run"
-          fi
+          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
 
-      - name: Create .reg directory structure
-        run: mkdir -p .reg/expected .reg/actual .reg/diff
+      - name: restore cached actual screenshots
+        id: screenshots_cache
+        uses: ./.github/actions/cache-screenshots
+        with:
+          lookup-only: 'false'
 
-      - name: Initialize expected images if none exist
-        run: |
-          if [ ! -d ".reg/expected" ] || [ ! "$(ls -A .reg/expected 2>/dev/null)" ]; then
-            echo "No expected images found, this might be the first run"
-            echo "Checking if this is a mainline branch..."
-            if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "push" ]; then
-              echo "This is main branch, copying current screenshots as baseline"
-              mkdir -p .reg/expected
-              if [ -d "__screenshots__" ] && [ "$(ls -A __screenshots__ 2>/dev/null)" ]; then
-                cp -r __screenshots__/* .reg/expected/
-                echo "Baseline images set from current screenshots"
-              fi
-            else
-              echo "This is not main branch, creating empty expected directory"
-              mkdir -p .reg/expected
-            fi
-          fi
+      - name: restore cached node_modules
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/cache-node-modules
 
-      - name: Debug - Check .reg directory contents
-        run: |
-          echo "=== .reg directory contents ==="
-          ls -la .reg/ || echo ".reg directory does not exist"
-          echo "=== Expected directory ==="
-          ls -la .reg/expected/ || echo "expected directory is empty"
-          echo "=== Actual directory ==="
-          ls -la .reg/actual/ || echo "actual directory is empty"
+      - name: cache storybook build result
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        id: storybook_result_cache
+        uses: ./.github/actions/cache-storybook-build-result
 
-      - name: Screenshots
-        run: pnpm ci:screenshot
+      - name: prepare for screenshots
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/prepare-screenshots
 
-      - name: Run reg-suit
-        run: pnpm ci:reg-suit
-        continue-on-error: true
+      - name: take screenshots
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard=${{ matrix.shard }}
 
-      - name: Check reg-suit results
-        run: |
-          if [ -f .reg/out.json ]; then
-            echo "=== Reg-suit Results ==="
-            cat .reg/out.json | jq '.'
-            NEW_ITEMS=$(cat .reg/out.json | jq '.newItems | length')
-            FAILED_ITEMS=$(cat .reg/out.json | jq '.failedItems | length')
-            echo "New items: $NEW_ITEMS"
-            echo "Failed items: $FAILED_ITEMS"
-            if [ "$FAILED_ITEMS" -gt 0 ]; then
-              echo "❌ Visual regression test failed with $FAILED_ITEMS failed items"
-              exit 1
-            elif [ "$NEW_ITEMS" -gt 0 ]; then
-              echo "⚠️  Visual regression test found $NEW_ITEMS new items (this may be expected)"
-            else
-              echo "✅ Visual regression test passed"
-            fi
-          else
-            echo "❌ No reg-suit output found"
-            exit 1
-          fi
-
-      - name: Generate reg-suit report summary
-        if: always()
-        run: |
-          echo "## Visual Regression Test Results" > .reg/summary.md
-          if [ -f .reg/out.json ]; then
-            NEW_ITEMS=$(cat .reg/out.json | jq '.newItems | length')
-            FAILED_ITEMS=$(cat .reg/out.json | jq '.failedItems | length')
-            PASSED_ITEMS=$(cat .reg/out.json | jq '.passedItems | length')
-            echo "- 🔴 Failed: $FAILED_ITEMS" >> .reg/summary.md
-            echo "- 🆕 New: $NEW_ITEMS" >> .reg/summary.md  
-            echo "- ✅ Passed: $PASSED_ITEMS" >> .reg/summary.md
-            echo "" >> .reg/summary.md
-            if [ "$FAILED_ITEMS" -gt 0 ] || [ "$NEW_ITEMS" -gt 0 ]; then
-              echo "View detailed results: [GitHub Pages Report](${{ github.server_url }}/${{ github.repository }}/pages)" >> .reg/summary.md
-            fi
-          fi
-
-      - name: Upload reg-suit results
+      - name: upload screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: visual-regression-test-result
-          path: .reg/
-          retention-days: 30
-        if: always()
+          name: actual-screenshots-${{ matrix.shard }}
+          path: __screenshots__
+          retention-days: 1
 
-      - name: Comment PR with results
-        if: github.event_name == 'pull_request' && always()
-        uses: actions/github-script@v7
-        continue-on-error: true
+  run_reg_suit:
+    needs:
+      - take_expected_screenshots
+      - take_actual_screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          script: |
-            const fs = require('fs');
-            try {
-              if (fs.existsSync('.reg/summary.md')) {
-                const summary = fs.readFileSync('.reg/summary.md', 'utf8');
-                await github.rest.issues.createComment({
-                  issue_number: context.issue.number,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  body: summary
-                });
-                console.log('PR comment posted successfully');
-              } else {
-                console.log('No summary file found, skipping PR comment');
-              }
-            } catch (error) {
-              console.log('Failed to post PR comment:', error.message);
-              console.log('This might be due to insufficient permissions');
-            }
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: restore cached expected screenshots
+        id: screenshots_cache
+        uses: ./.github/actions/cache-screenshots
+        with:
+          lookup-only: 'false'
+
+      - name: download expected screenshots
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: expected-screenshots-*
+          path: expected-temp
+          merge-multiple: true
+
+      - name: merge expected screenshots
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        run: |
+          mkdir -p __screenshots__
+          if [ -d "expected-temp" ]; then
+            cp -r expected-temp/* __screenshots__/
+          fi
+
+      - name: set reg-suit expected
+        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+        run: |
+          rm -rf .reg/expected/
+          mkdir -p .reg/expected
+          mv -f __screenshots__/* .reg/expected/
+          ls -l .reg/
+
+      - name: download actual screenshots
+        uses: actions/download-artifact@v4
+        with:
+          pattern: actual-screenshots-*
+          path: actual-temp
+          merge-multiple: true
+
+      - name: setup actual screenshots
+        run: |
+          mkdir -p __screenshots__
+          if [ -d "actual-temp" ]; then
+            cp -r actual-temp/* __screenshots__/
+          fi
+
+      - name: restore cached node_modules
+        uses: ./.github/actions/cache-node-modules
+
+      - name: workaround for detached HEAD
+        run: |
+          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
+
+      - name: run reg-suit
+        run: pnpm test:vrt
+
+      - name: deploy report to github page
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .reg/
+          destination_dir: ${{ github.head_ref }}
+
+      - name: find comment
+        uses: peter-evans/find-comment@v2
+        id: fc
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: reg-suit report
+
+      - name: upsert comment
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            reg-suit report
+            https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{github.head_ref}}
+          edit-mode: replace

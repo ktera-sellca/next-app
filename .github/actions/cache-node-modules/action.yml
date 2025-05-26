@@ -1,0 +1,17 @@
+name: 'cache node modules'
+description: 'cache node modules with pnpm support'
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/cache@v4
+      id: node_modules_cache_id
+      env:
+        cache-name: cache-node-modules
+      with:
+        path: ~/.pnpm-store
+        key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+    
+    - if: ${{ steps.node_modules_cache_id.outputs.cache-hit != 'true' }}
+      name: install node_modules
+      run: pnpm install --frozen-lockfile
+      shell: bash
