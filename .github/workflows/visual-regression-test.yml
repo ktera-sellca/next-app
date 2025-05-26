@@ -74,7 +74,15 @@ jobs:
           mkdir .reg/actual/
           ls -l .reg/
 
-      - name: Upload .reg/
+      - name: Upload .reg/ (from cache)
+        if: steps.check_files.outputs.files_exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: reg-expected
+          path: .reg/
+
+      - name: Upload .reg/ (newly generated)
+        if: steps.check_files.outputs.files_exists == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: reg-expected
@@ -117,11 +125,36 @@ jobs:
       - name: Install Puppeteer Chrome
         run: npx puppeteer browsers install chrome
 
-      - name: Load reg-suit expecteds
+      - name: Get main branch commit hash
+        id: main_commithash
+        run: echo "hash=$(git rev-parse origin/main)" >> $GITHUB_OUTPUT
+
+      - name: Try to restore cached reg-suit screenshots
+        id: cache_restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .reg/
+          key: reg-${{ steps.main_commithash.outputs.hash }}-v7
+
+      - name: Load reg-suit expecteds from artifact
+        if: steps.cache_restore.outputs.cache-hit != 'true'
         uses: actions/download-artifact@v4
         with:
           name: reg-expected
           path: .reg/
+        continue-on-error: true
+
+      - name: Create .reg directory if not exists
+        run: mkdir -p .reg/expected .reg/actual
+
+      - name: Debug - Check .reg directory contents
+        run: |
+          echo "=== .reg directory contents ==="
+          ls -la .reg/ || echo ".reg directory does not exist"
+          echo "=== Expected directory ==="
+          ls -la .reg/expected/ || echo "expected directory is empty"
+          echo "=== Actual directory ==="
+          ls -la .reg/actual/ || echo "actual directory is empty"
 
       - name: Screenshots
         run: pnpm ci:screenshot
