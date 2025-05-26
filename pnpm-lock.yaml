@@ -32,6 +32,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.1.0(react@19.1.0)
+      reg-publish-filesystem-plugin:
+        specifier: ^0.2.0
+        version: 0.2.0
     devDependencies:
       '@storybook/addon-essentials':
         specifier: ^8.6.14
@@ -1769,6 +1772,9 @@ packages:
 
   '@types/estree@1.0.7':
     resolution: {integrity: sha512-w28IoSUCJpidD/TGviZwwMJckNESJZXFu7NBZ5YJ4mEUnNraUn9Pm8HSZm/jDF1pDWYKspWE7oVphigUPRakIQ==}
+
+  '@types/glob@7.2.0':
+    resolution: {integrity: sha512-ZUxbzKl0IfJILTS6t7ip5fQQM/J3TJYubDm3nMbgubNNYS62eXeUpoLUC8/7fJNiFYHTrGPQn7hspDUzIHX3UA==}
 
   '@types/glob@8.1.0':
     resolution: {integrity: sha512-IO+MJPVhoqz+28h1qLAcBEH2+xHMK6MTyHJc7MTnnYb6wsoLR29POVGJ7LycmVXIqyy/4/2ShP5sUwTXuOwb/w==}
@@ -4333,8 +4339,14 @@ packages:
   reg-notify-github-plugin@0.14.4:
     resolution: {integrity: sha512-p3VZyyQuty6Kj+MzY+T/vZQP+QK0VjU2RwK8oR6iT/oKskrtxq3SGB1dxdsMYprttSG3y4hkxZenN07ZluvSPg==}
 
+  reg-publish-filesystem-plugin@0.2.0:
+    resolution: {integrity: sha512-e2HBODJmGwgJgsmrzV/lGgX/pDONqmSD+goY4X08tlm4TmwMNSrwsobkCJG4e+EbTgrGp8FAuefXTHmyXCzCKQ==}
+
   reg-suit-core@0.14.4:
     resolution: {integrity: sha512-1QTqsMfFbWrlM4N7aRM+GTc5ilbPCh4ffDUpJzDKGcovpapiVUOzpUAsmT1Q34TrFHcWtx+ZEFKWMHgtomSW0Q==}
+
+  reg-suit-util@0.12.2:
+    resolution: {integrity: sha512-1PUzeH7Uddwv9e1ns9x8qgbp6FzJqqau6AckVCLg3XiS2BvAgrh7RgJ7UNxBT+4m0UWzc7bYRyJTw4F31ihklA==}
 
   reg-suit-util@0.14.3:
     resolution: {integrity: sha512-1Ddn2Nm2Ha7z07ubZeWuINjXRXr6uQWAdUpfbwt7cZyo8wlX2QBtjeet8WM0KVvrz9Ykj8suvUhhd3HLLyOYCQ==}
@@ -7303,6 +7315,11 @@ snapshots:
 
   '@types/estree@1.0.7': {}
 
+  '@types/glob@7.2.0':
+    dependencies:
+      '@types/minimatch': 5.1.2
+      '@types/node': 20.17.30
+
   '@types/glob@8.1.0':
     dependencies:
       '@types/minimatch': 5.1.2
@@ -10131,11 +10148,31 @@ snapshots:
       tiny-commit-walker: 1.2.1
       undici: 6.21.3
 
+  reg-publish-filesystem-plugin@0.2.0:
+    dependencies:
+      reg-suit-util: 0.12.2
+
   reg-suit-core@0.14.4:
     dependencies:
       reg-cli: 0.18.10
       reg-suit-util: 0.14.3
       rimraf: 5.0.10
+
+  reg-suit-util@0.12.2:
+    dependencies:
+      '@types/cli-progress': 3.11.6
+      '@types/cli-spinner': 0.2.3
+      '@types/glob': 7.2.0
+      '@types/lodash': 4.17.17
+      '@types/mime-types': 2.1.4
+      '@types/mkdirp': 1.0.2
+      chalk: 4.1.2
+      cli-progress: 3.12.0
+      cli-spinner: 0.2.10
+      glob: 7.2.3
+      lodash: 4.17.21
+      mime-types: 2.1.35
+      mkdirp: 1.0.4
 
   reg-suit-util@0.14.3:
     dependencies:

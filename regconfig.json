@@ -14,6 +14,9 @@
       "prComment": true,
       "prCommentBehavior": "default",
       "clientId": "szQ3N7UwNDKx0M9LrSjRTSwo0Dczt7QwNjS01M8uSS1K1C1OzclJTgQA"
+    },
+    "reg-publish-filesystem-plugin": {
+      "path": ".reg-assets"
     }
   }
 }
