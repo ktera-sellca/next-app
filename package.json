@@ -11,7 +11,8 @@
     "storybook": "storybook dev -p 6007",
     "build-storybook": "storybook build",
     "storycap": "storycap --serverCmd \"pnpm dlx http-server storybook-static -p 6006\" http://localhost:6006",
-    "reg-suit": "reg-suit run"
+    "ci:screenshot": "pnpm build-storybook && pnpm storycap",
+    "ci:reg-suit": "reg-suit run"
   },
   "dependencies": {
     "@next/bundle-analyzer": "^15.3.1",

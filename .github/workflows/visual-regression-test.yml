@@ -1,0 +1,136 @@
+name: Visual Regression Test
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches-ignore:
+      - ci/**
+
+jobs:
+  prepare:
+    name: Prepare main branch screenshots
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check commit hash
+        id: commithash
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Restore pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-v1
+
+      - name: Restore reg-suit screenshots
+        uses: actions/cache@v4
+        with:
+          path: .reg/
+          key: reg-${{ steps.commithash.outputs.hash }}-v7
+
+      - name: Check file existence
+        id: check_files
+        uses: andstor/file-existence-action@v2
+        with:
+          files: ".reg/"
+
+      - name: Install dependencies (main branch)
+        if: steps.check_files.outputs.files_exists == 'false'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Puppeteer Chrome
+        if: steps.check_files.outputs.files_exists == 'false'
+        run: npx puppeteer browsers install chrome
+
+      - name: Screenshots main branch
+        if: steps.check_files.outputs.files_exists == 'false'
+        run: pnpm ci:screenshot
+
+      - name: Run reg-suit main branch
+        if: steps.check_files.outputs.files_exists == 'false'
+        run: pnpm ci:reg-suit
+
+      - name: Set reg-suit expected
+        if: steps.check_files.outputs.files_exists == 'false'
+        run: |
+          rm -rf .reg/expected/
+          mv -f .reg/actual/ .reg/expected/
+          mkdir .reg/actual/
+          ls -l .reg/
+
+      - name: Upload .reg/
+        uses: actions/upload-artifact@v4
+        with:
+          name: reg-expected
+          path: .reg/
+
+  run:
+    name: Run reg-suit
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - name: Workaround for detached HEAD
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
+
+      - name: Restore pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-v1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Puppeteer Chrome
+        run: npx puppeteer browsers install chrome
+
+      - name: Load reg-suit expecteds
+        uses: actions/download-artifact@v4
+        with:
+          name: reg-expected
+          path: .reg/
+
+      - name: Screenshots
+        run: pnpm ci:screenshot
+
+      - name: Run reg-suit
+        run: pnpm ci:reg-suit
+
+      - name: Upload reg-suit
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-test-result
+          path: .reg/
