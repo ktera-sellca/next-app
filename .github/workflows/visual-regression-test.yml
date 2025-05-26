@@ -10,4 +10,4 @@ jobs:
       - uses: reg-viz/reg-actions@v2
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
-          image-directory-path: "./images"
+          image-directory-path: "./__screenshots--"
