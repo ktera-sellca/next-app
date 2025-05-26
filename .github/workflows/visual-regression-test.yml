@@ -235,7 +235,7 @@ jobs:
             
             ### Reports
             - 📊 ${{ steps.vrt_results.outputs.html_available == 'true' && format('[Interactive HTML Report]({0}{1})', steps.deployment.outputs.page_url, github.head_ref) || '⚠️ No HTML report generated' }}
-            - 📎 [Download artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - 📎 [Download artifacts (${{ steps.artifact_name.outputs.name }})](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
             ${{ steps.vrt_results.outputs.has_diffs == 'true' && '- 🖼️ Diff images available in the HTML report' || '' }}
             
             ---
@@ -259,10 +259,14 @@ jobs:
             </details>
         continue-on-error: true
 
+      - name: Set artifact name
+        id: artifact_name
+        run: echo "name=vrt-results-$(echo '${{ github.head_ref }}' | tr '/' '-' | tr ':' '-' | tr '<' '-' | tr '>' '-' | tr '|' '-' | tr '*' '-' | tr '?' '-' | tr '\' '-')-${{ github.run_number }}" >> $GITHUB_OUTPUT
+        
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vrt-results-${{ github.head_ref }}-${{ github.run_number }}
+          name: ${{ steps.artifact_name.outputs.name }}
           path: |
             vrt-report.html
             vrt-report.json
