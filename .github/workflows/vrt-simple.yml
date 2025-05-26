@@ -1,4 +1,4 @@
-name: Visual Regression Testing
+name: Visual Regression Testing (Simple)
 
 on:
   push:
@@ -12,10 +12,10 @@ permissions:
   actions: write
 
 jobs:
-  visual-regression-test:
+  vrt:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -37,32 +37,26 @@ jobs:
       - name: Build Storybook
         run: pnpm build-storybook
 
-      - name: Generate screenshots
-        run: pnpm ci:screenshot
-
-      - name: Copy screenshots to reg directory
+      - name: Generate screenshots with Python server
         run: |
-          mkdir -p .reg/actual
-          cp -r __screenshots__/* .reg/actual/ || echo "No screenshots found"
+          cd storybook-static
+          python3 -m http.server 6006 &
+          SERVER_PID=$!
+          cd ..
+          
+          sleep 5
+          curl -f http://localhost:6006 || (echo "Server not ready, waiting more..." && sleep 10)
+          
+          npx storycap http://localhost:6006 --outDir __screenshots__ --serverTimeout 60000 --delay 1500
+          
+          kill $SERVER_PID
 
-      - name: Run visual regression test
+      - name: Run VRT
         uses: reg-viz/reg-actions@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          image-directory-path: ".reg/actual"
+          image-directory-path: "__screenshots__"
           artifact-name: "vrt-report"
           comment-report-format: "summarized"
-          outdated-comment-action: "minimize"
           matching-threshold: 0.1
           threshold-rate: 0.05
-          retention-days: 30
-
-      - name: Upload VRT report as artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vrt-report-${{ github.sha }}
-          path: |
-            .reg/
-            report.html
-          retention-days: 30

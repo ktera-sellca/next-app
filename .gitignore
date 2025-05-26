@@ -44,9 +44,7 @@ next-env.d.ts
 storybook-static
 
 # reg-cli and VRT
-__screenshots__/diff/
-__screenshots__/actual/
-__screenshots__/expected/
+__screenshots__/*
 vrt-report.html
 vrt-report.json
 .reg/diff/

@@ -12,7 +12,7 @@
     "build-storybook": "storybook build",
     "storycap": "storycap http://localhost:6006",
     "storybook:screenshot": "storycap http://localhost:6006",
-    "ci:screenshot": "pnpm build-storybook && storycap http://localhost:6006",
+    "ci:screenshot": "pnpm build-storybook && storycap http://localhost:6006 --outDir __screenshots__ --serverTimeout 120000 --delay 2000",
     "vrt:local": "pnpm ci:screenshot && pnpm test:vrt",
     "test:vrt": "reg-cli __screenshots__/actual __screenshots__/expected __screenshots__/diff -R ./vrt-report.html -J ./vrt-report.json"
   },
