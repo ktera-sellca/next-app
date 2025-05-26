@@ -7,7 +7,11 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "storybook": "storybook dev -p 6007",
+    "build-storybook": "storybook build",
+    "storycap": "storycap --serverCmd \"pnpm dlx http-server storybook-static -p 6006\" http://localhost:6006",
+    "reg-suit": "reg-suit run"
   },
   "dependencies": {
     "@next/bundle-analyzer": "^15.3.1",
@@ -15,14 +19,28 @@
     "@vercel/functions": "^2.0.1",
     "@vercel/speed-insights": "^1.2.0",
     "next": "15.3.1",
+    "puppeteer": "^24.9.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@storybook/addon-essentials": "^8.6.14",
+    "@storybook/addon-interactions": "^8.6.14",
+    "@storybook/addon-onboarding": "^8.6.14",
+    "@storybook/blocks": "^8.6.14",
+    "@storybook/nextjs": "^8.6.14",
+    "@storybook/react": "^8.6.14",
+    "@storybook/test": "^8.6.14",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "reg-keygen-git-hash-plugin": "^0.14.3",
+    "reg-notify-github-plugin": "^0.14.4",
+    "reg-publish-gcs-plugin": "^0.14.4",
+    "reg-suit": "^0.14.4",
+    "storybook": "^8.6.14",
+    "storycap": "^5.0.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
