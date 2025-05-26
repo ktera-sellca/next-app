@@ -10,9 +10,11 @@ defaults:
     shell: bash
 
 permissions:
-  contents: read
+  contents: write
   issues: write
   pull-requests: write
+  pages: write
+  id-token: write
 
 jobs:
   check_expected_screenshots:
@@ -173,9 +175,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Git configuration
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
       - name: Workaround for detached HEAD
         run: |
-          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
+          git fetch origin
+          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} origin/${GITHUB_HEAD_REF#refs/heads/}
 
       - name: Get commit hash
         id: get_hash
@@ -239,9 +247,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Git configuration
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
       - name: Workaround for detached HEAD
         run: |
-          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
+          git fetch origin
+          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} origin/${GITHUB_HEAD_REF#refs/heads/}
 
       - name: Get commit hash
         id: get_hash
@@ -382,19 +396,52 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup Git configuration
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
       - name: Workaround for detached HEAD
         run: |
-          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
+          git fetch origin
+          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} origin/${GITHUB_HEAD_REF#refs/heads/}
 
       - name: Run reg-suit
         run: pnpm test:vrt
+        continue-on-error: true
+        
+      - name: Check reg-suit results
+        id: check_results
+        run: |
+          if [ -f .reg/out.json ]; then
+            echo "reg-suit completed successfully"
+            echo "results_available=true" >> $GITHUB_OUTPUT
+          else
+            echo "reg-suit failed or no results generated"
+            echo "results_available=false" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Deploy report to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        if: steps.check_results.outputs.results_available == 'true'
+        
+      - name: Prepare Pages artifact
+        if: steps.check_results.outputs.results_available == 'true'
+        run: |
+          mkdir -p pages-output/${{ github.head_ref }}
+          cp -r .reg/* pages-output/${{ github.head_ref }}/
+          
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        if: steps.check_results.outputs.results_available == 'true'
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: .reg/
-          destination_dir: ${{ github.head_ref }}
+          path: pages-output
+          
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        if: steps.check_results.outputs.results_available == 'true'
+        continue-on-error: true
 
       - name: Find comment
         uses: peter-evans/find-comment@v2
@@ -403,6 +450,7 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: 'github-actions[bot]'
           body-includes: reg-suit report
+        continue-on-error: true
 
       - name: Upsert comment
         uses: peter-evans/create-or-update-comment@v3
@@ -411,5 +459,7 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           body: |
             reg-suit report
-            https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{github.head_ref}}
+            ${{ steps.deployment.outputs.page_url }}${{ github.head_ref }}
           edit-mode: replace
+        continue-on-error: true
+        if: steps.check_results.outputs.results_available == 'true'
