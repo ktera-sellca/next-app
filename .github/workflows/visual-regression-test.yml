@@ -1,4 +1,5 @@
 name: visual-regression-test
+
 on:
   pull_request:
     branches:
@@ -34,23 +35,43 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: restore cached expected screenshots
+      - name: Get commit hash
+        id: get_hash
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Restore cached expected screenshots
         id: screenshots_cache
-        uses: ./.github/actions/cache-screenshots
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-expected-screenshots
         with:
-          lookup-only: 'true'
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.get_hash.outputs.hash }}
+          lookup-only: true
 
-      - name: restore cached node_modules
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        uses: ./.github/actions/cache-node-modules
+      - name: Restore pnpm cache
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: cache storybook build result
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        id: storybook_result_cache
-        uses: ./.github/actions/cache-storybook-build-result
+      - name: Install dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
 
-      - name: storybook build
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' && steps.storybook_result_cache.outputs.cache-hit != 'true' }}
+      - name: Cache storybook build
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        id: storybook_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-storybook-build
+        with:
+          path: storybook-static/
+          key: ${{ runner.os }}-storybook-static-${{ steps.get_hash.outputs.hash }}
+
+      - name: Build Storybook
+        if: steps.screenshots_cache.outputs.cache-hit != 'true' && steps.storybook_cache.outputs.cache-hit != 'true'
         run: pnpm build-storybook
 
   take_expected_screenshots:
@@ -77,30 +98,52 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: restore cached expected screenshots
+      - name: Get commit hash
+        id: get_hash
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Restore cached expected screenshots
         id: screenshots_cache
-        uses: ./.github/actions/cache-screenshots
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-expected-screenshots
         with:
-          lookup-only: 'false'
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.get_hash.outputs.hash }}
 
-      - name: restore cached node_modules
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        uses: ./.github/actions/cache-node-modules
+      - name: Restore pnpm cache
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: cache storybook build result
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        id: storybook_result_cache
-        uses: ./.github/actions/cache-storybook-build-result
+      - name: Install dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
 
-      - name: prepare for screenshots
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        uses: ./.github/actions/prepare-screenshots
+      - name: Restore storybook build
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-storybook-build
+        with:
+          path: storybook-static/
+          key: ${{ runner.os }}-storybook-static-${{ steps.get_hash.outputs.hash }}
 
-      - name: take screenshots
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+      - name: Install Puppeteer Chrome
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: npx puppeteer browsers install chrome
+
+      - name: Install native dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y fonts-liberation
+
+      - name: Take screenshots
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
         run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard=${{ matrix.shard }}
 
-      - name: upload screenshots
+      - name: Upload screenshots
         uses: actions/upload-artifact@v4
         with:
           name: expected-screenshots-${{ matrix.shard }}
@@ -110,6 +153,7 @@ jobs:
   check_actual_screenshots:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -125,27 +169,47 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: workaround for detached HEAD
+      - name: Workaround for detached HEAD
         run: |
           git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
 
-      - name: restore cached actual screenshots
+      - name: Get commit hash
+        id: get_hash
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Restore cached actual screenshots
         id: screenshots_cache
-        uses: ./.github/actions/cache-screenshots
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-actual-screenshots
         with:
-          lookup-only: 'true'
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.get_hash.outputs.hash }}
+          lookup-only: true
 
-      - name: restore cached node_modules
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        uses: ./.github/actions/cache-node-modules
+      - name: Restore pnpm cache
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: cache storybook build result
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        id: storybook_result_cache
-        uses: ./.github/actions/cache-storybook-build-result
+      - name: Install dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
 
-      - name: storybook build
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' && steps.storybook_result_cache.outputs.cache-hit != 'true' }}
+      - name: Cache storybook build
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        id: storybook_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-storybook-build
+        with:
+          path: storybook-static/
+          key: ${{ runner.os }}-storybook-static-${{ steps.get_hash.outputs.hash }}
+
+      - name: Build Storybook
+        if: steps.screenshots_cache.outputs.cache-hit != 'true' && steps.storybook_cache.outputs.cache-hit != 'true'
         run: pnpm build-storybook
 
   take_actual_screenshots:
@@ -171,34 +235,56 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: workaround for detached HEAD
+      - name: Workaround for detached HEAD
         run: |
           git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
 
-      - name: restore cached actual screenshots
+      - name: Get commit hash
+        id: get_hash
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Restore cached actual screenshots
         id: screenshots_cache
-        uses: ./.github/actions/cache-screenshots
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-actual-screenshots
         with:
-          lookup-only: 'false'
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.get_hash.outputs.hash }}
 
-      - name: restore cached node_modules
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        uses: ./.github/actions/cache-node-modules
+      - name: Restore pnpm cache
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: cache storybook build result
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        id: storybook_result_cache
-        uses: ./.github/actions/cache-storybook-build-result
+      - name: Install dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
 
-      - name: prepare for screenshots
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
-        uses: ./.github/actions/prepare-screenshots
+      - name: Restore storybook build
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-storybook-build
+        with:
+          path: storybook-static/
+          key: ${{ runner.os }}-storybook-static-${{ steps.get_hash.outputs.hash }}
 
-      - name: take screenshots
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+      - name: Install Puppeteer Chrome
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: npx puppeteer browsers install chrome
+
+      - name: Install native dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y fonts-liberation
+
+      - name: Take screenshots
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
         run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard=${{ matrix.shard }}
 
-      - name: upload screenshots
+      - name: Upload screenshots
         uses: actions/upload-artifact@v4
         with:
           name: actual-screenshots-${{ matrix.shard }}
@@ -227,68 +313,82 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: restore cached expected screenshots
-        id: screenshots_cache
-        uses: ./.github/actions/cache-screenshots
-        with:
-          lookup-only: 'false'
+      - name: Get main branch commit hash
+        id: main_hash
+        run: echo "hash=$(git rev-parse origin/main)" >> $GITHUB_OUTPUT
 
-      - name: download expected screenshots
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+      - name: Restore cached expected screenshots
+        id: expected_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-expected-screenshots
+        with:
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.main_hash.outputs.hash }}
+
+      - name: Download expected screenshots
+        if: steps.expected_cache.outputs.cache-hit != 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: expected-screenshots-*
           path: expected-temp
           merge-multiple: true
 
-      - name: merge expected screenshots
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+      - name: Merge expected screenshots
+        if: steps.expected_cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p __screenshots__
           if [ -d "expected-temp" ]; then
             cp -r expected-temp/* __screenshots__/
           fi
 
-      - name: set reg-suit expected
-        if: ${{ steps.screenshots_cache.outputs.cache-hit != 'true' }}
+      - name: Set reg-suit expected
         run: |
           rm -rf .reg/expected/
           mkdir -p .reg/expected
-          mv -f __screenshots__/* .reg/expected/
+          if [ -d "__screenshots__" ] && [ "$(ls -A __screenshots__ 2>/dev/null)" ]; then
+            cp -r __screenshots__/* .reg/expected/
+          fi
           ls -l .reg/
 
-      - name: download actual screenshots
+      - name: Download actual screenshots
         uses: actions/download-artifact@v4
         with:
           pattern: actual-screenshots-*
           path: actual-temp
           merge-multiple: true
 
-      - name: setup actual screenshots
+      - name: Setup actual screenshots
         run: |
           mkdir -p __screenshots__
           if [ -d "actual-temp" ]; then
             cp -r actual-temp/* __screenshots__/
           fi
 
-      - name: restore cached node_modules
-        uses: ./.github/actions/cache-node-modules
+      - name: Restore pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: workaround for detached HEAD
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Workaround for detached HEAD
         run: |
           git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
 
-      - name: run reg-suit
+      - name: Run reg-suit
         run: pnpm test:vrt
 
-      - name: deploy report to github page
+      - name: Deploy report to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: .reg/
           destination_dir: ${{ github.head_ref }}
 
-      - name: find comment
+      - name: Find comment
         uses: peter-evans/find-comment@v2
         id: fc
         with:
@@ -296,7 +396,7 @@ jobs:
           comment-author: 'github-actions[bot]'
           body-includes: reg-suit report
 
-      - name: upsert comment
+      - name: Upsert comment
         uses: peter-evans/create-or-update-comment@v3
         with:
           comment-id: ${{ steps.fc.outputs.comment-id }}
