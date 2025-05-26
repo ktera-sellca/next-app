@@ -10,9 +10,10 @@
     "lint": "next lint",
     "storybook": "storybook dev -p 6007",
     "build-storybook": "storybook build",
-    "storycap": "storycap --serverCmd \"pnpm dlx http-server storybook-static -p 6006\" http://localhost:6006",
-    "storybook:screenshot": "storycap --serverCmd \"pnpm dlx http-server storybook-static -p 6006\" http://localhost:6006",
-    "ci:screenshot": "pnpm build-storybook && pnpm storycap",
+    "storycap": "storycap http://localhost:6006",
+    "storybook:screenshot": "storycap http://localhost:6006",
+    "ci:screenshot": "pnpm build-storybook && storycap http://localhost:6006",
+    "vrt:local": "pnpm ci:screenshot && pnpm test:vrt",
     "test:vrt": "reg-cli __screenshots__/actual __screenshots__/expected __screenshots__/diff -R ./vrt-report.html -J ./vrt-report.json"
   },
   "dependencies": {

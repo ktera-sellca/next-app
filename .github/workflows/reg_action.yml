@@ -1,0 +1,68 @@
+name: Visual Regression Testing
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: write
+
+jobs:
+  visual-regression-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Storybook
+        run: pnpm build-storybook
+
+      - name: Generate screenshots
+        run: pnpm ci:screenshot
+
+      - name: Copy screenshots to reg directory
+        run: |
+          mkdir -p .reg/actual
+          cp -r __screenshots__/* .reg/actual/ || echo "No screenshots found"
+
+      - name: Run visual regression test
+        uses: reg-viz/reg-actions@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          image-directory-path: ".reg/actual"
+          artifact-name: "vrt-report"
+          comment-report-format: "summarized"
+          outdated-comment-action: "minimize"
+          matching-threshold: 0.1
+          threshold-rate: 0.05
+          retention-days: 30
+
+      - name: Upload VRT report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrt-report-${{ github.sha }}
+          path: |
+            .reg/
+            report.html
+          retention-days: 30
