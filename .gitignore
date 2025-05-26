@@ -44,5 +44,5 @@ next-env.d.ts
 storybook-static
 
 # reg-suit
-.reg/*
+.reg/
 __screenshots__/
