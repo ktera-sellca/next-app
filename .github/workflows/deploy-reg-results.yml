@@ -32,6 +32,17 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+
+      - name: Check if artifacts were downloaded
+        id: check_artifacts
+        run: |
+          if [ -d "./reg-results" ] && [ "$(ls -A ./reg-results 2>/dev/null)" ]; then
+            echo "artifacts_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "artifacts_found=false" >> $GITHUB_OUTPUT
+            echo "No artifacts found, creating placeholder content"
+          fi
 
       - name: Create index page
         run: |
@@ -67,10 +78,36 @@ jobs:
       - name: Copy reg-suit results
         run: |
           mkdir -p ./pages/latest
-          if [ -d "./reg-results" ]; then
+          if [ "${{ steps.check_artifacts.outputs.artifacts_found }}" = "true" ]; then
             cp -r ./reg-results/* ./pages/latest/
+            echo "Reg-suit results copied successfully"
           else
-            echo "<h1>No results found</h1>" > ./pages/latest/index.html
+            cat > ./pages/latest/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Visual Regression Test - No Results</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; text-align: center; }
+                  .message { padding: 20px; background: #f0f0f0; border-radius: 8px; }
+              </style>
+          </head>
+          <body>
+              <div class="message">
+                  <h1>No Visual Regression Test Results Available</h1>
+                  <p>This may happen if:</p>
+                  <ul style="text-align: left; display: inline-block;">
+                      <li>The test workflow is still running</li>
+                      <li>The test workflow failed before generating results</li>
+                      <li>Artifacts have expired</li>
+                  </ul>
+                  <p>Check the <a href="${{ github.server_url }}/${{ github.repository }}/actions">Actions tab</a> for more details.</p>
+              </div>
+          </body>
+          </html>
+          EOF
           fi
 
       - name: Setup Pages

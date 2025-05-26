@@ -94,6 +94,7 @@ jobs:
         with:
           name: reg-expected
           path: .reg/expected
+        if: always()
 
   run:
     name: Run reg-suit
@@ -148,21 +149,41 @@ jobs:
 
       - name: Load reg-suit expecteds from artifact
         if: steps.cache_restore.outputs.cache-hit != 'true'
+        id: download_expected
         uses: actions/download-artifact@v4
         with:
           name: reg-expected
           path: .reg/expected
-          continue-on-error: true
+        continue-on-error: true
+
+      - name: Check artifact download result
+        if: steps.cache_restore.outputs.cache-hit != 'true'
+        run: |
+          if [ "${{ steps.download_expected.outcome }}" = "success" ]; then
+            echo "Expected images downloaded from artifact successfully"
+          else
+            echo "Failed to download expected images from artifact, this might be the first run"
+          fi
 
       - name: Create .reg directory structure
         run: mkdir -p .reg/expected .reg/actual .reg/diff
 
       - name: Initialize expected images if none exist
         run: |
-          if [ ! "$(ls -A .reg/expected 2>/dev/null)" ]; then
+          if [ ! -d ".reg/expected" ] || [ ! "$(ls -A .reg/expected 2>/dev/null)" ]; then
             echo "No expected images found, this might be the first run"
-            mkdir -p .reg/expected
-            echo "Expected directory prepared for first-time comparison"
+            echo "Checking if this is a mainline branch..."
+            if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "push" ]; then
+              echo "This is main branch, copying current screenshots as baseline"
+              mkdir -p .reg/expected
+              if [ -d "__screenshots__" ] && [ "$(ls -A __screenshots__ 2>/dev/null)" ]; then
+                cp -r __screenshots__/* .reg/expected/
+                echo "Baseline images set from current screenshots"
+              fi
+            else
+              echo "This is not main branch, creating empty expected directory"
+              mkdir -p .reg/expected
+            fi
           fi
 
       - name: Debug - Check .reg directory contents
