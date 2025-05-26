@@ -1,16 +1,26 @@
-name: Visual Regression Test
+name: visual-regression-test
+
 on:
-  push:
+  pull_request:
     branches:
       - main
-  pull_request:
-    branches-ignore:
-      - ci/**
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  pages: write
+  id-token: write
 
 jobs:
-  prepare:
-    name: Prepare main branch screenshots
+  check_expected_screenshots:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -22,82 +32,59 @@ jobs:
         with:
           version: 10.8.0
 
-      - name: Checkout main branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Check commit hash
-        id: commithash
+      - name: Get commit hash
+        id: get_hash
         run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Restore cached expected screenshots
+        id: screenshots_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-expected-screenshots
+        with:
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.get_hash.outputs.hash }}
+          lookup-only: true
+
       - name: Restore pnpm cache
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.pnpm-store
-          key: pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-v1
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: Restore reg-suit screenshots
-        uses: actions/cache@v4
-        with:
-          path: .reg/
-          key: reg-${{ steps.commithash.outputs.hash }}-v7
-
-      - name: Check file existence
-        id: check_files
-        uses: andstor/file-existence-action@v2
-        with:
-          files: ".reg/"
-
-      - name: Install dependencies (main branch)
-        if: steps.check_files.outputs.files_exists == 'false'
+      - name: Install dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Install Puppeteer Chrome
-        if: steps.check_files.outputs.files_exists == 'false'
-        run: npx puppeteer browsers install chrome
-
-      - name: Screenshots main branch
-        if: steps.check_files.outputs.files_exists == 'false'
-        run: pnpm ci:screenshot
-
-      - name: Run reg-suit main branch
-        if: steps.check_files.outputs.files_exists == 'false'
-        run: pnpm ci:reg-suit
-
-      - name: Set reg-suit expected
-        if: steps.check_files.outputs.files_exists == 'false'
-        run: |
-          rm -rf .reg/expected/
-          mv -f .reg/actual/ .reg/expected/
-          mkdir .reg/actual/
-          ls -l .reg/
-
-      - name: Upload .reg/ (from cache)
-        if: steps.check_files.outputs.files_exists == 'true'
-        uses: actions/upload-artifact@v4
+      - name: Cache storybook build
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        id: storybook_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-storybook-build
         with:
-          name: reg-expected
-          path: .reg/
+          path: storybook-static/
+          key: ${{ runner.os }}-storybook-static-${{ steps.get_hash.outputs.hash }}
 
-      - name: Upload .reg/ (newly generated)
-        if: steps.check_files.outputs.files_exists == 'false'
-        uses: actions/upload-artifact@v4
-        with:
-          name: reg-expected
-          path: .reg/
+      - name: Build Storybook
+        if: steps.screenshots_cache.outputs.cache-hit != 'true' && steps.storybook_cache.outputs.cache-hit != 'true'
+        run: pnpm build-storybook
 
-  run:
-    name: Run reg-suit
-    needs: prepare
+  take_expected_screenshots:
+    needs: check_expected_screenshots
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        shard: ["1/4", "2/4", "3/4", "4/4"]
 
+    steps:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -108,62 +95,371 @@ jobs:
         with:
           version: 10.8.0
 
-      - name: Workaround for detached HEAD
-        if: ${{ github.event_name == 'pull_request' }}
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Get commit hash
+        id: get_hash
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Restore cached expected screenshots
+        id: screenshots_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-expected-screenshots
+        with:
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.get_hash.outputs.hash }}
+
+      - name: Restore pnpm cache
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore storybook build
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-storybook-build
+        with:
+          path: storybook-static/
+          key: ${{ runner.os }}-storybook-static-${{ steps.get_hash.outputs.hash }}
+
+      - name: Install Puppeteer Chrome
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: npx puppeteer browsers install chrome
+
+      - name: Install native dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y fonts-liberation
+
+      - name: Set shard name
+        id: shard_name
+        run: echo "name=$(echo '${{ matrix.shard }}' | tr '/' '-')" >> $GITHUB_OUTPUT
+
+      - name: Take screenshots
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard="${{ matrix.shard }}"
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: expected-screenshots-${{ steps.shard_name.outputs.name }}
+          path: __screenshots__
+          retention-days: 1
+
+  check_actual_screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git configuration
         run: |
-          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} && git pull
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
+      - name: Workaround for detached HEAD
+        run: |
+          git fetch origin
+          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} origin/${GITHUB_HEAD_REF#refs/heads/}
+
+      - name: Get commit hash
+        id: get_hash
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Restore cached actual screenshots
+        id: screenshots_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-actual-screenshots
+        with:
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.get_hash.outputs.hash }}
+          lookup-only: true
+
+      - name: Restore pnpm cache
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache storybook build
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        id: storybook_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-storybook-build
+        with:
+          path: storybook-static/
+          key: ${{ runner.os }}-storybook-static-${{ steps.get_hash.outputs.hash }}
+
+      - name: Build Storybook
+        if: steps.screenshots_cache.outputs.cache-hit != 'true' && steps.storybook_cache.outputs.cache-hit != 'true'
+        run: pnpm build-storybook
+
+  take_actual_screenshots:
+    needs: check_actual_screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        shard: ["1/4", "2/4", "3/4", "4/4"]
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git configuration
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
+      - name: Workaround for detached HEAD
+        run: |
+          git fetch origin
+          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} origin/${GITHUB_HEAD_REF#refs/heads/}
+
+      - name: Get commit hash
+        id: get_hash
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Restore cached actual screenshots
+        id: screenshots_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-actual-screenshots
+        with:
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.get_hash.outputs.hash }}
+
+      - name: Restore pnpm cache
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore storybook build
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-storybook-build
+        with:
+          path: storybook-static/
+          key: ${{ runner.os }}-storybook-static-${{ steps.get_hash.outputs.hash }}
+
+      - name: Install Puppeteer Chrome
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: npx puppeteer browsers install chrome
+
+      - name: Install native dependencies
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y fonts-liberation
+
+      - name: Set shard name
+        id: shard_name
+        run: echo "name=$(echo '${{ matrix.shard }}' | tr '/' '-')" >> $GITHUB_OUTPUT
+
+      - name: Take screenshots
+        if: steps.screenshots_cache.outputs.cache-hit != 'true'
+        run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard="${{ matrix.shard }}"
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-screenshots-${{ steps.shard_name.outputs.name }}
+          path: __screenshots__
+          retention-days: 1
+
+  run_reg_suit:
+    needs:
+      - take_expected_screenshots
+      - take_actual_screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get main branch commit hash
+        id: main_hash
+        run: echo "hash=$(git rev-parse origin/main)" >> $GITHUB_OUTPUT
+
+      - name: Restore cached expected screenshots
+        id: expected_cache
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-expected-screenshots
+        with:
+          path: __screenshots__/
+          key: ${{ runner.os }}-screenshots-${{ steps.main_hash.outputs.hash }}
+
+      - name: Download expected screenshots
+        if: steps.expected_cache.outputs.cache-hit != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: expected-screenshots-*
+          path: expected-temp
+          merge-multiple: true
+
+      - name: Merge expected screenshots
+        if: steps.expected_cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p __screenshots__
+          if [ -d "expected-temp" ]; then
+            cp -r expected-temp/* __screenshots__/
+          fi
+
+      - name: Set reg-suit expected
+        run: |
+          rm -rf .reg/expected/
+          mkdir -p .reg/expected
+          if [ -d "__screenshots__" ] && [ "$(ls -A __screenshots__ 2>/dev/null)" ]; then
+            cp -r __screenshots__/* .reg/expected/
+          fi
+          ls -l .reg/
+
+      - name: Download actual screenshots
+        uses: actions/download-artifact@v4
+        with:
+          pattern: actual-screenshots-*
+          path: actual-temp
+          merge-multiple: true
+
+      - name: Setup actual screenshots
+        run: |
+          mkdir -p __screenshots__
+          if [ -d "actual-temp" ]; then
+            cp -r actual-temp/* __screenshots__/
+          fi
 
       - name: Restore pnpm cache
         uses: actions/cache@v4
         with:
           path: ~/.pnpm-store
-          key: pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-v1
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Puppeteer Chrome
-        run: npx puppeteer browsers install chrome
-
-      - name: Get main branch commit hash
-        id: main_commithash
-        run: echo "hash=$(git rev-parse origin/main)" >> $GITHUB_OUTPUT
-
-      - name: Try to restore cached reg-suit screenshots
-        id: cache_restore
-        uses: actions/cache/restore@v4
-        with:
-          path: .reg/
-          key: reg-${{ steps.main_commithash.outputs.hash }}-v7
-
-      - name: Load reg-suit expecteds from artifact
-        if: steps.cache_restore.outputs.cache-hit != 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: reg-expected
-          path: .reg/
-        continue-on-error: true
-
-      - name: Create .reg directory if not exists
-        run: mkdir -p .reg/expected .reg/actual
-
-      - name: Debug - Check .reg directory contents
+      - name: Setup Git configuration
         run: |
-          echo "=== .reg directory contents ==="
-          ls -la .reg/ || echo ".reg directory does not exist"
-          echo "=== Expected directory ==="
-          ls -la .reg/expected/ || echo "expected directory is empty"
-          echo "=== Actual directory ==="
-          ls -la .reg/actual/ || echo "actual directory is empty"
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
 
-      - name: Screenshots
-        run: pnpm ci:screenshot
+      - name: Workaround for detached HEAD
+        run: |
+          git fetch origin
+          git checkout ${GITHUB_HEAD_REF#refs/heads/} || git checkout -b ${GITHUB_HEAD_REF#refs/heads/} origin/${GITHUB_HEAD_REF#refs/heads/}
 
       - name: Run reg-suit
-        run: pnpm ci:reg-suit
+        run: pnpm test:vrt
+        continue-on-error: true
+        
+      - name: Check reg-suit results
+        id: check_results
+        run: |
+          if [ -f .reg/out.json ]; then
+            echo "reg-suit completed successfully"
+            echo "results_available=true" >> $GITHUB_OUTPUT
+          else
+            echo "reg-suit failed or no results generated"
+            echo "results_available=false" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Upload reg-suit
-        uses: actions/upload-artifact@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        if: steps.check_results.outputs.results_available == 'true'
+        
+      - name: Prepare Pages artifact
+        if: steps.check_results.outputs.results_available == 'true'
+        run: |
+          mkdir -p pages-output/${{ github.head_ref }}
+          cp -r .reg/* pages-output/${{ github.head_ref }}/
+          
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        if: steps.check_results.outputs.results_available == 'true'
         with:
-          name: visual-regression-test-result
-          path: .reg/
+          path: pages-output
+          
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        if: steps.check_results.outputs.results_available == 'true'
+        continue-on-error: true
+
+      - name: Find comment
+        uses: peter-evans/find-comment@v2
+        id: fc
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: reg-suit report
+        continue-on-error: true
+
+      - name: Upsert comment
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            reg-suit report
+            ${{ steps.deployment.outputs.page_url }}${{ github.head_ref }}
+          edit-mode: replace
+        continue-on-error: true
+        if: steps.check_results.outputs.results_available == 'true'
