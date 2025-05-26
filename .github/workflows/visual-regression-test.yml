@@ -42,7 +42,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .reg/
-          key: reg-${{ steps.commithash.outputs.hash }}-v7
+          key: reg-expected-${{ steps.commithash.outputs.hash }}-v8
+          restore-keys: |
+            reg-expected-${{ steps.commithash.outputs.hash }}-
+            reg-expected-
 
       - name: Check file existence
         id: check_files
@@ -74,19 +77,18 @@ jobs:
           mkdir .reg/actual/
           ls -l .reg/
 
-      - name: Upload .reg/ (from cache)
-        if: steps.check_files.outputs.files_exists == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: reg-expected
-          path: .reg/
-
-      - name: Upload .reg/ (newly generated)
+      - name: Save expected images to cache
         if: steps.check_files.outputs.files_exists == 'false'
+        uses: actions/cache/save@v4
+        with:
+          path: .reg/expected
+          key: reg-expected-${{ steps.commithash.outputs.hash }}-v8
+
+      - name: Upload expected images artifact
         uses: actions/upload-artifact@v4
         with:
           name: reg-expected
-          path: .reg/
+          path: .reg/expected
 
   run:
     name: Run reg-suit
@@ -129,23 +131,34 @@ jobs:
         id: main_commithash
         run: echo "hash=$(git rev-parse origin/main)" >> $GITHUB_OUTPUT
 
-      - name: Try to restore cached reg-suit screenshots
+      - name: Try to restore cached expected images
         id: cache_restore
         uses: actions/cache/restore@v4
         with:
-          path: .reg/
-          key: reg-${{ steps.main_commithash.outputs.hash }}-v7
+          path: .reg/expected
+          key: reg-expected-${{ steps.main_commithash.outputs.hash }}-v8
+          restore-keys: |
+            reg-expected-${{ steps.main_commithash.outputs.hash }}-
+            reg-expected-
 
       - name: Load reg-suit expecteds from artifact
         if: steps.cache_restore.outputs.cache-hit != 'true'
         uses: actions/download-artifact@v4
         with:
           name: reg-expected
-          path: .reg/
-        continue-on-error: true
+          path: .reg/expected
+          continue-on-error: true
 
-      - name: Create .reg directory if not exists
-        run: mkdir -p .reg/expected .reg/actual
+      - name: Create .reg directory structure
+        run: mkdir -p .reg/expected .reg/actual .reg/diff
+
+      - name: Initialize expected images if none exist
+        run: |
+          if [ ! "$(ls -A .reg/expected 2>/dev/null)" ]; then
+            echo "No expected images found, this might be the first run"
+            mkdir -p .reg/expected
+            echo "Expected directory prepared for first-time comparison"
+          fi
 
       - name: Debug - Check .reg directory contents
         run: |
@@ -161,9 +174,67 @@ jobs:
 
       - name: Run reg-suit
         run: pnpm ci:reg-suit
+        continue-on-error: true
 
-      - name: Upload reg-suit
+      - name: Check reg-suit results
+        run: |
+          if [ -f .reg/out.json ]; then
+            echo "=== Reg-suit Results ==="
+            cat .reg/out.json | jq '.'
+            NEW_ITEMS=$(cat .reg/out.json | jq '.newItems | length')
+            FAILED_ITEMS=$(cat .reg/out.json | jq '.failedItems | length')
+            echo "New items: $NEW_ITEMS"
+            echo "Failed items: $FAILED_ITEMS"
+            if [ "$FAILED_ITEMS" -gt 0 ]; then
+              echo "❌ Visual regression test failed with $FAILED_ITEMS failed items"
+              exit 1
+            elif [ "$NEW_ITEMS" -gt 0 ]; then
+              echo "⚠️  Visual regression test found $NEW_ITEMS new items (this may be expected)"
+            else
+              echo "✅ Visual regression test passed"
+            fi
+          else
+            echo "❌ No reg-suit output found"
+            exit 1
+          fi
+
+      - name: Generate reg-suit report summary
+        if: always()
+        run: |
+          echo "## Visual Regression Test Results" > .reg/summary.md
+          if [ -f .reg/out.json ]; then
+            NEW_ITEMS=$(cat .reg/out.json | jq '.newItems | length')
+            FAILED_ITEMS=$(cat .reg/out.json | jq '.failedItems | length')
+            PASSED_ITEMS=$(cat .reg/out.json | jq '.passedItems | length')
+            echo "- 🔴 Failed: $FAILED_ITEMS" >> .reg/summary.md
+            echo "- 🆕 New: $NEW_ITEMS" >> .reg/summary.md  
+            echo "- ✅ Passed: $PASSED_ITEMS" >> .reg/summary.md
+            echo "" >> .reg/summary.md
+            if [ "$FAILED_ITEMS" -gt 0 ] || [ "$NEW_ITEMS" -gt 0 ]; then
+              echo "View detailed results: [GitHub Pages Report](${{ github.server_url }}/${{ github.repository }}/pages)" >> .reg/summary.md
+            fi
+          fi
+
+      - name: Upload reg-suit results
         uses: actions/upload-artifact@v4
         with:
           name: visual-regression-test-result
           path: .reg/
+          retention-days: 30
+        if: always()
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (fs.existsSync('.reg/summary.md')) {
+              const summary = fs.readFileSync('.reg/summary.md', 'utf8');
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            }
