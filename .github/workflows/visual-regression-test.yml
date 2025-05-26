@@ -80,7 +80,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        shard: [1/4, 2/4, 3/4, 4/4]
+        shard: ["1/4", "2/4", "3/4", "4/4"]
 
     steps:
       - name: Setup Node.js
@@ -139,14 +139,18 @@ jobs:
         if: steps.screenshots_cache.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install -y fonts-liberation
 
+      - name: Set shard name
+        id: shard_name
+        run: echo "name=$(echo '${{ matrix.shard }}' | tr '/' '-')" >> $GITHUB_OUTPUT
+
       - name: Take screenshots
         if: steps.screenshots_cache.outputs.cache-hit != 'true'
-        run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard=${{ matrix.shard }}
+        run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard="${{ matrix.shard }}"
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: expected-screenshots-${{ matrix.shard }}
+          name: expected-screenshots-${{ steps.shard_name.outputs.name }}
           path: __screenshots__
           retention-days: 1
 
@@ -218,7 +222,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        shard: [1/4, 2/4, 3/4, 4/4]
+        shard: ["1/4", "2/4", "3/4", "4/4"]
 
     steps:
       - name: Setup Node.js
@@ -280,14 +284,18 @@ jobs:
         if: steps.screenshots_cache.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install -y fonts-liberation
 
+      - name: Set shard name
+        id: shard_name
+        run: echo "name=$(echo '${{ matrix.shard }}' | tr '/' '-')" >> $GITHUB_OUTPUT
+
       - name: Take screenshots
         if: steps.screenshots_cache.outputs.cache-hit != 'true'
-        run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard=${{ matrix.shard }}
+        run: pnpm exec storycap --serverCmd "pnpm dlx http-server storybook-static -p 6006" http://localhost:6006 --shard="${{ matrix.shard }}"
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: actual-screenshots-${{ matrix.shard }}
+          name: actual-screenshots-${{ steps.shard_name.outputs.name }}
           path: __screenshots__
           retention-days: 1
 
